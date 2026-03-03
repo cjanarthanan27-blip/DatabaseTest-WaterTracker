@@ -103,10 +103,14 @@ DATABASES = {
     )
 }
 
-CORS_ALLOWED_ORIGINS = os.environ.get(
+_cors_origins = os.environ.get(
     "CORS_ALLOWED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
-).split(",")
+)
+if _cors_origins.strip() == "*":
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = _cors_origins.split(",")
 
 
 # Password validation
