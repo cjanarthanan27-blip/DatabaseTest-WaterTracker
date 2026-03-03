@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.backend"
+
+[deploy]
+startCommand = "gunicorn --bind 0.0.0.0:$PORT rathinamHR.wsgi:application"
+healthcheckPath = "/api/entries/"
+healthcheckTimeout = 100
+restartPolicyType = "on-failure"

@@ -1,0 +1,23 @@
+# Build stage
+FROM node:20-alpine as build-stage
+
+WORKDIR /app/apps/water_tracker/frontend
+
+COPY apps/water_tracker/frontend/package*.json ./
+
+RUN npm install
+
+COPY apps/water_tracker/frontend/ ./
+
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
+RUN npm run build
+
+# Production stage
+FROM nginx:stable-alpine as production-stage
+
+COPY --from=build-stage /app/apps/water_tracker/frontend/dist /usr/share/nginx/html
+
+# Update nginx to listen on $PORT
+CMD ["sh", "-c", "sed -i 's/listen  80;/listen '\"$PORT\"';/' /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

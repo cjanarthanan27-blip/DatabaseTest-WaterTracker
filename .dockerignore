@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.db.sqlite3
+db.sqlite3
+/staticfiles
+/media
+.git
+.gitignore
+.vscode
+node_modules
+apps/water_tracker/frontend/dist
