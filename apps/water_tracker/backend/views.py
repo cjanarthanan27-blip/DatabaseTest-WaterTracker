@@ -1751,12 +1751,22 @@ class DatabaseRestoreView(APIView):
 
         uploaded_file = request.FILES['file']
 
-        # Save uploaded file to a temporary location
+        # Read all bytes and detect/strip BOM encoding (PowerShell exports UTF-16)
+        raw_bytes = uploaded_file.read()
+        if raw_bytes.startswith(b'\xff\xfe') or raw_bytes.startswith(b'\xfe\xff'):
+            # UTF-16 with BOM (common from PowerShell > redirect on Windows)
+            content = raw_bytes.decode('utf-16')
+        elif raw_bytes.startswith(b'\xef\xbb\xbf'):
+            # UTF-8 BOM
+            content = raw_bytes.decode('utf-8-sig')
+        else:
+            content = raw_bytes.decode('utf-8')
+
         temp_fd, temp_path = tempfile.mkstemp(suffix='.json')
         try:
-            with os.fdopen(temp_fd, 'wb') as temp_file:
-                for chunk in uploaded_file.chunks():
-                    temp_file.write(chunk)
+            # Always write as UTF-8 (no BOM) so loaddata can read it
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as temp_file:
+                temp_file.write(content)
 
             # Flush existing data then load the fixture
             call_command('flush', interactive=False, reset_sequences=True)
