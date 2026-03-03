@@ -4,17 +4,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
-from django.db import connections, connection
+from django.db import transaction
 from django.db.models import Sum
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import os
-import shutil
-import sqlite3
 import tempfile
-from django.conf import settings
-from django.http import FileResponse
+from django.http import HttpResponse
 from .models import (
     User,
     MasterLocation,
@@ -1723,52 +1720,51 @@ class DatabaseBackupView(APIView):
     def get(self, request):
         if request.user.role != 'Admin':
             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
-        
-        db_path = settings.DATABASES['default']['NAME']
-        if not os.path.exists(db_path):
-            return Response({"error": "Database file not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-        response = FileResponse(open(db_path, 'rb'), as_attachment=True, filename='db.sqlite3')
-        return response
+
+        try:
+            from io import StringIO
+            output = StringIO()
+            call_command(
+                'dumpdata',
+                '--natural-foreign',
+                '--natural-primary',
+                '--indent', '2',
+                '--exclude', 'contenttypes',
+                '--exclude', 'auth.permission',
+                stdout=output
+            )
+            json_data = output.getvalue().encode('utf-8')
+            response = HttpResponse(json_data, content_type='application/json')
+            response['Content-Disposition'] = 'attachment; filename="db_backup.json"'
+            return response
+        except Exception as e:
+            return Response({"error": f"Backup failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class DatabaseRestoreView(APIView):
     def post(self, request):
         if request.user.role != 'Admin':
             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
-            
+
         if 'file' not in request.FILES:
             return Response({"error": "No file uploaded"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        uploaded_file = request.FILES['file']
-        db_path = settings.DATABASES['default']['NAME']
 
-        # 1. Save uploaded file to a temporary file
-        temp_fd, temp_path = tempfile.mkstemp()
+        uploaded_file = request.FILES['file']
+
+        # Save uploaded file to a temporary location
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.json')
         try:
             with os.fdopen(temp_fd, 'wb') as temp_file:
                 for chunk in uploaded_file.chunks():
                     temp_file.write(chunk)
-            
-            # 2. Perform online backup/restore using sqlite3 backup API
-            # This avoids "WinError 32" as we don't delete/overwrite the main file handle
-            source_conn = sqlite3.connect(temp_path)
-            try:
-                # Backup existing DB file traditional way just as a safety net
-                if os.path.exists(db_path):
-                    shutil.copy2(db_path, f"{db_path}.bak")
-                
-                # Get the destination connection (we need the underlying sqlite3 object)
-                # Django's connection.cursor().connection provides this
-                with connection.cursor() as cursor:
-                    dest_conn = cursor.connection
-                    source_conn.backup(dest_conn)
-                
-                return Response({"message": "Database restored successfully (online)"}, status=status.HTTP_200_OK)
-            except Exception as e:
-                return Response({"error": f"Restore failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                source_conn.close()
+
+            # Flush existing data then load the fixture
+            call_command('flush', interactive=False, reset_sequences=True)
+            call_command('loaddata', temp_path, verbosity=0)
+
+            return Response({"message": "Database restored successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": f"Restore failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
