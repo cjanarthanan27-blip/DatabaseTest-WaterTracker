@@ -1,15 +1,19 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: water_tracker
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=water_tracker
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
       timeout: 5s
       retries: 5
 
@@ -17,14 +21,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    volumes:
-      - .:/app
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/water_tracker
-      - DEBUG=False
-      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
-      - CORS_ALLOWED_ORIGINS=http://localhost,http://localhost:5173
-      - DJANGO_SECRET_KEY=production-secret-key-change-me
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-water_tracker}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DEBUG=${DEBUG:-False}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
+      - DJANGO_ADMIN_EMAIL=${DJANGO_ADMIN_EMAIL:-admin@example.com}
+      - DJANGO_ADMIN_PASSWORD=${DJANGO_ADMIN_PASSWORD:-admin123}
+      - DJANGO_ADMIN_USER=${DJANGO_ADMIN_USER:-admin}
+      - PORT=8080
     depends_on:
       db:
         condition: service_healthy
@@ -34,9 +42,10 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        - VITE_API_URL=http://localhost:8000/api/
+        # Crucial: This points the React app executing in the browser to the local backend port.
+        - VITE_API_URL=http://localhost:8080/api/
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - backend
 
